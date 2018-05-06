@@ -14,8 +14,14 @@ CRNN_Simu::~CRNN_Simu()
 void CRNN_Simu::simulate()
 {
 	Initial_Simu();
-	Recurrent_Initial_NN_Weight();//利用一步预测初始化N步预测的NN权值
-	Simulate_Error_Backpropogation();
+	Initial_NeuralNetwork();
+
+	for (int k=0;k<Training_Time_Step;k++)
+	{
+		Initial_Data(Input_State_Vector_Training[k]);
+		Recurrent_Initial_NN_Weight();//利用一步预测初始化N步预测的NN权值
+		Simulate_Error_Backpropogation();
+	}	
 }
 
 void CRNN_Simu::Recurrent_Initial_NN_Weight()
@@ -28,7 +34,7 @@ void CRNN_Simu::Recurrent_Initial_NN_Weight()
 		Predictive_Step = i+1;
 		while (Error_Function_Value > Error_Accuracy && Episode_num < Max_Episode)
 		{
-			Unfold_Neural_Network();
+			Unfold_Neural_Network();//数据前向移动
 			Cal_Error_Function_Value();//计算误差
 			Calculate_Error();//计算残差
 			Cal_Gradient();//计算梯度
@@ -41,7 +47,6 @@ void CRNN_Simu::Recurrent_Initial_NN_Weight()
 	}
 	
 	Predictive_Step = temp_predictive_step;//恢复原始预测步长
-	
 }
 
 void CRNN_Simu::Update_learning_rate(int step)
@@ -133,50 +138,84 @@ void CRNN_Simu::Simulate_Error_Backpropogation()
 
 void CRNN_Simu::Initial_Simu()
 {
-	Initial_Data();
+	Initial_Training();
 	File_Initail();//初始化文件
-	Initial_NeuralNetwork();
 }
 
-void CRNN_Simu::Initial_Data()
+void CRNN_Simu::Initial_Training()
 {
-	Predictive_Step = 10;//预测步长
+	Training_Time_Step = 5;//训练步数
+	Predictive_Step = 5;//预测步长
+
+	//State-Space NN 状态量
+	State_Quantity = 2;
+	//Control 数量
+	Control_Quantity = 1;
+	//output 数量
+	Output_Quantity = 2;
 
 	//State-Space NN
-	Quantity_InputNode_SS = 3;//输入端
-	Quantity_OutputNode_SS = 2;//输出端
+	Quantity_InputNode_SS = State_Quantity + Control_Quantity;//输入端
+	Quantity_OutputNode_SS = State_Quantity;//输出端
 	Term_Num_SS = 2;//次
 
 	//Output-Space NN
-	Quantity_InputNode_OS = 2;//输入端
-	Quantity_OutputNode_OS = 2;//输出端
+	Quantity_InputNode_OS = State_Quantity;//输入端
+	Quantity_OutputNode_OS = Output_Quantity;//输出端
 	Term_Num_OS = 2;//次
 
-	//State-Space-NN 初始值
-	InputNode_Value_vector.push_back(1.0);
-	InputNode_Value_vector.push_back(1.0);
-	InputNode_Value_vector.push_back(1.0);
-
+	InputNode_Value_vector.resize(State_Quantity + Control_Quantity);
+	
+	vector<vector<double>> ve_temp_control;
 	//每一时刻控制u的值，默认为1
-	for (int i=0;i<Predictive_Step;i++)
+	for (int i = 0; i < Predictive_Step; i++)
 	{
-		Input_Control_vector.push_back(1);
+		vector<double> one_temp;
+		for (int j = 0; j < Control_Quantity; j++)
+		{
+			one_temp.push_back(1.0);
+		}
+		ve_temp_control.push_back(one_temp);
 	}
 
-	vector<double> Input_Model_State;
-	Input_Model_State.push_back(1.0);
-	Input_Model_State.push_back(1.0);
-	vector<vector<double>> Input_Model_Control;
-	vector<double> control_value_temp;
-	control_value_temp.push_back(1.0);
-	for (int i=0;i<Predictive_Step;i++)
+	vector<double> ve_temp_ss;
+	ve_temp_ss.push_back(1.0);
+	ve_temp_ss.push_back(1.0);
+
+	CModel model_training;
+	model_training.Initial_Data(Training_Time_Step, State_Quantity, Control_Quantity, Output_Quantity, ve_temp_ss, ve_temp_control);
+	model_training.Model_Operation();
+	Input_State_Vector_Training = model_training.state_vector;
+
+}
+
+void CRNN_Simu::Initial_Data(vector<double> m_State)
+{
+	//每一时刻控制u的值，默认为1
+	Input_Control_vector.clear();
+	for (int i = 0; i < Predictive_Step; i++)
 	{
-		Input_Model_Control.push_back(control_value_temp);
+		vector<double> one_temp;
+		for (int j = 0; j < Control_Quantity; j++)
+		{
+			one_temp.push_back(1.0);
+		}
+		Input_Control_vector.push_back(one_temp);
 	}
-	m_model.Initial_Data(Predictive_Step, Quantity_OutputNode_SS, Quantity_InputNode_SS-Quantity_OutputNode_SS, Quantity_OutputNode_OS, Input_Model_State, Input_Model_Control);
+
+	CModel m_model;
+	m_model.Initial_Data(Predictive_Step, State_Quantity, Control_Quantity, Output_Quantity, m_State, Input_Control_vector);
 	m_model.Model_Operation();
 	Target_Output.resize(Predictive_Step);
 	Target_Output = m_model.output_vector;
+
+	//State-Space 状态变量的值
+	InputNode_Value_vector.clear();
+	InputNode_Value_vector = m_State;
+	for (int i=0;i<Control_Quantity;i++)
+	{
+		InputNode_Value_vector.push_back(Input_Control_vector[0][i]);
+	}
 
 	//学习率
 	Learning_rate_min = 0.00001;
@@ -193,6 +232,11 @@ void CRNN_Simu::Initial_Data()
 	Max_Episode = 30000;
 
 	//初始化残差vector大小
+	errorDelta_2_Out.clear();
+	errorDelta_2_Hid.clear();
+	errorDelta_1_Out.clear();
+	errorDelta_1_Hid.clear();
+
 	errorDelta_2_Out.resize(Predictive_Step);
 	errorDelta_2_Hid.resize(Predictive_Step);
 	errorDelta_1_Out.resize(Predictive_Step);
@@ -243,25 +287,31 @@ void CRNN_Simu::Initial_NeuralNetwork()
 	{
 		Nerual_role nn_role;
 		nn_role = State_Space;
-
-		if (i==0)
-		{			
-			CNeural_unit m_StateSpace_NN(Quantity_InputNode_SS, InputNode_Value_vector, Quantity_OutputNode_SS, Term_Num_SS, nn_role);
-			m_StateSpace_NN.Neural_Weight = State_Space_NN_Real.Neural_Weight;//初始化：用统一的weight
-			State_Space_NN.push_back(m_StateSpace_NN);
-		}
-		else {			
-			vector<double> InputValue_vector_one;
-			for (int j = 0; j < Quantity_OutputNode_SS; j++)
-			{
-				InputValue_vector_one.push_back(State_Space_NN[i - 1].OutputNode_Value[j]);//上一个NN的输出值
-			}
-			InputValue_vector_one.push_back(Input_Control_vector[i]);
-			CNeural_unit m_StateSpace_NN(Quantity_InputNode_SS, InputValue_vector_one, Quantity_OutputNode_SS, Term_Num_SS, nn_role);	
-			m_StateSpace_NN.Neural_Weight = State_Space_NN_Real.Neural_Weight;//初始化：用统一的weight
-			State_Space_NN.push_back(m_StateSpace_NN);
-		}		
+		CNeural_unit m_StateSpace_NN(Quantity_InputNode_SS, InputNode_Value_vector, Quantity_OutputNode_SS, Term_Num_SS, nn_role);
+		State_Space_NN.push_back(m_StateSpace_NN);
 	}
+
+// 		if (i==0)
+// 		{			
+// 			CNeural_unit m_StateSpace_NN(Quantity_InputNode_SS, InputNode_Value_vector, Quantity_OutputNode_SS, Term_Num_SS, nn_role);
+// 			m_StateSpace_NN.Neural_Weight = State_Space_NN_Real.Neural_Weight;//初始化：用统一的weight
+// 			State_Space_NN.push_back(m_StateSpace_NN);
+// 		}
+// 		else {	
+// 			vector<double> InputValue_vector_one;
+// 			for (int j = 0; j < Quantity_OutputNode_SS; j++)
+// 			{
+// 				InputValue_vector_one.push_back(State_Space_NN[i - 1].OutputNode_Value[j]);//上一个NN的输出值
+// 			}
+// 			for (int g=0;g<Control_Quantity;g++)
+// 			{
+// 				InputValue_vector_one.push_back(Input_Control_vector[i][g]);
+// 			}
+// 			CNeural_unit m_StateSpace_NN(Quantity_InputNode_SS, InputValue_vector_one, Quantity_OutputNode_SS, Term_Num_SS, nn_role);	
+// 			m_StateSpace_NN.Neural_Weight = State_Space_NN_Real.Neural_Weight;//初始化：用统一的weight
+// 			State_Space_NN.push_back(m_StateSpace_NN);
+// 		}		
+ 	
 
 	//Output-Space NN
 	for (int i = 0; i <Predictive_Step;i++)
@@ -586,7 +636,10 @@ void CRNN_Simu::Data_Feedforward()
 			{
 				InputValue_vector_one.push_back(State_Space_NN[i - 1].OutputNode_Value[j]);//上一个NN的输出值
 			}
-			InputValue_vector_one.push_back(Input_Control_vector[i]);
+			for (int g=0;g<Control_Quantity;g++)
+			{
+				InputValue_vector_one.push_back(Input_Control_vector[i][g]);
+			}
 			State_Space_NN[i].InputNode_Value = InputValue_vector_one;
 			State_Space_NN[i].Data_FeedForward();
 		}

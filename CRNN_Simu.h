@@ -13,6 +13,7 @@ public:
 
 public:
 	int Predictive_Step;//预测步长
+	int Training_Time_Step;//训练步数
 
 	vector<vector<double>> errorDelta_2_Out;
 	vector<vector<double>> errorDelta_2_Hid;
@@ -31,13 +32,19 @@ public:
 	int Quantity_OutputNode_SS;//输出端
 	int Term_Num_SS;//次
 
+	int State_Quantity;//状态变量数量
+	int Control_Quantity;//控制变量数量
+	int Output_Quantity;//输出变量数量
+
 	//Output-Space NN
 	int Quantity_InputNode_OS;//输入端
 	int Quantity_OutputNode_OS;//输出端
 	int Term_Num_OS;//次
 
 	vector<double> InputNode_Value_vector;//State-Space NN的初始值
-	vector<double> Input_Control_vector;//每一个时刻输入的控制u的值
+
+	vector<vector<double>> Input_State_Vector_Training;//批量的state-space状态量
+	vector<vector<double>> Input_Control_vector;//每一个时刻输入的控制u的值
 
 	vector<CNeural_unit> State_Space_NN;
 	vector<CNeural_unit> Output_Space_NN;
@@ -60,8 +67,6 @@ public:
 	int Max_Episode;//最大更新循环次数
 	int Episode_num;//迭代更新次数
 
-	CModel m_model;
-
 	FILE * file_gradient_ss;//梯度数据文件
 	FILE * file_gradient_os;
 
@@ -77,7 +82,8 @@ public:
 
 public:
 	void Initial_Simu();
-	void Initial_Data();
+	void Initial_Training();
+	void Initial_Data(vector<double> m_State);
 	void Initial_NeuralNetwork();
 	void Create_Real_NeuralNetwork();
 
